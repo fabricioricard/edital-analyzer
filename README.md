@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Analisador Inteligente de Editais
 
 Uma aplicação web elegante e sofisticada para análise automatizada de editais e chamadas públicas, utilizando inteligência artificial para extrair e estruturar informações críticas sem deixar escapar nenhum detalhe importante.
@@ -313,3 +314,6 @@ Para suporte, documentação e guias de uso, consulte:
 **Versão**: 1.0  
 **Desenvolvido com**: React, Node.js, Manus LLM  
 **Status**: Pronto para produção ✅
+=======
+# edital-analyzer
+>>>>>>> 353979d0afd31bd4e7e45dbb3b0ac2a659fd5f34

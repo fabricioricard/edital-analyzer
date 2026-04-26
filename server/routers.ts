@@ -4,7 +4,6 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { storagePut } from "./storage";
 import { extractTextFromDocument, isSupportedDocumentType } from "./documentProcessor";
 import { analyzeEdital } from "./editalAnalyzer";
 import {
@@ -15,6 +14,8 @@ import {
 } from "./db";
 import { notifyOwner } from "./_core/notification";
 
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -22,9 +23,7 @@ export const appRouter = router({
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
+      return { success: true } as const;
     }),
   }),
 
@@ -32,56 +31,91 @@ export const appRouter = router({
     upload: protectedProcedure
       .input(
         z.object({
-          fileName: z.string(),
-          fileBuffer: z.instanceof(Buffer),
+          fileName: z.string().min(1).max(255),
+          // O browser envia Uint8Array; Node usa Buffer — aceitamos ambos e normalizamos
+          fileBuffer: z
+            .instanceof(Buffer)
+            .or(z.instanceof(Uint8Array))
+            .transform((v) => Buffer.from(v)),
           mimeType: z.string(),
-          fileSize: z.number(),
+          fileSize: z.number().max(MAX_FILE_SIZE, "Arquivo muito grande (máx 50MB)"),
         })
       )
       .mutation(async ({ ctx, input }) => {
         if (!isSupportedDocumentType(input.mimeType)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Unsupported document type",
+            message: "Tipo de arquivo não suportado. Use PDF ou DOCX.",
           });
         }
 
+        if (input.fileBuffer.length > MAX_FILE_SIZE) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Arquivo muito grande (máx 50MB).",
+          });
+        }
+
+        // ── Etapa 1: Extrair texto ─────────────────────────────────────────
+        let text: string;
         try {
-          // Extrair texto do documento
-          const text = await extractTextFromDocument(
-            input.fileBuffer,
-            input.mimeType
-          );
+          console.log("[upload] ETAPA 1 — extraindo texto | mime:", input.mimeType, "| bytes:", input.fileBuffer.length);
+          text = await extractTextFromDocument(input.fileBuffer, input.mimeType);
+          console.log("[upload] ETAPA 1 OK — chars extraídos:", text.length);
+        } catch (err) {
+          console.error("[upload] ETAPA 1 FALHOU:", err);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao extrair texto do documento." });
+        }
 
-          // Armazenar arquivo no S3
-          const { key, url } = await storagePut(
-            `editals/${ctx.user.id}/${Date.now()}-${input.fileName}`,
-            input.fileBuffer,
-            input.mimeType
-          );
+        if (!text || text.trim().length === 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Não foi possível extrair texto do documento. Verifique se o arquivo não está corrompido ou é apenas uma imagem escaneada.",
+          });
+        }
 
-          // Criar registro do edital
-          const edital = await createEdital({
+        // ── Etapa 2: Análise via Anthropic ────────────────────────────────
+        let analysis: Awaited<ReturnType<typeof analyzeEdital>>;
+        try {
+          console.log("[upload] ETAPA 2 — chamando API Anthropic...");
+          analysis = await analyzeEdital(text);
+          console.log("[upload] ETAPA 2 OK — hasCritical:", analysis.hasCriticalDeadline, "| deadlines:", analysis.deadlines.length);
+        } catch (err) {
+          console.error("[upload] ETAPA 2 FALHOU:", err);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao analisar o edital com IA." });
+        }
+
+        // ── Etapa 3: Criar registro do edital (sem S3) ────────────────────
+        // fileKey e fileUrl ficam vazios — o arquivo original não é armazenado,
+        // apenas a análise estruturada persiste no banco.
+        let edital: Awaited<ReturnType<typeof createEdital>>;
+        try {
+          console.log("[upload] ETAPA 3 — criando registro no banco...");
+          edital = await createEdital({
             userId: ctx.user.id,
             fileName: input.fileName,
-            fileKey: key,
-            fileUrl: url,
+            fileKey: "",
+            fileUrl: "",
             mimeType: input.mimeType,
             fileSize: input.fileSize,
+            title: analysis.title || undefined,
+            organization: analysis.organization || undefined,
           });
+          console.log("[upload] ETAPA 3 OK — edital id:", edital?.id);
+        } catch (err) {
+          console.error("[upload] ETAPA 3 FALHOU:", err);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao registrar o edital no banco de dados." });
+        }
 
-          if (!edital) {
-            throw new TRPCError({
-              code: "INTERNAL_SERVER_ERROR",
-              message: "Failed to create edital record",
-            });
-          }
+        if (!edital) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao registrar o edital no banco de dados." });
+        }
 
-          // Analisar edital com LLM
-          const analysis = await analyzeEdital(text);
-
-          // Criar registro de análise
-          const analysisRecord = await createEditalAnalysis({
+        // ── Etapa 4: Persistir análise ────────────────────────────────────
+        let analysisRecord: Awaited<ReturnType<typeof createEditalAnalysis>>;
+        try {
+          console.log("[upload] ETAPA 4 — salvando análise no banco...");
+          analysisRecord = await createEditalAnalysis({
             editalId: edital.id,
             userId: ctx.user.id,
             summary: analysis.summary,
@@ -94,74 +128,71 @@ export const appRouter = router({
             hasCriticalDeadline: analysis.hasCriticalDeadline,
             rawText: text,
           });
+          console.log("[upload] ETAPA 4 OK — analysis id:", analysisRecord?.id);
+        } catch (err) {
+          console.error("[upload] ETAPA 4 FALHOU:", err);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao salvar a análise no banco de dados." });
+        }
 
-          if (!analysisRecord) {
-            throw new TRPCError({
-              code: "INTERNAL_SERVER_ERROR",
-              message: "Failed to create analysis record",
-            });
-          }
+        if (!analysisRecord) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao salvar a análise no banco de dados." });
+        }
 
-          // Enviar notificação se houver prazos críticos
-          if (analysis.hasCriticalDeadline) {
-            const criticalDeadlines = analysis.deadlines
-              .filter((d) => d.isCritical)
-              .map((d) => `${d.name} (${d.date})`)
-              .join(", ");
+        // ── Etapa 5: Notificação (background) ────────────────────────────
+        if (analysis.hasCriticalDeadline) {
+          const criticalDeadlines = analysis.deadlines
+            .filter((d) => d.isCritical)
+            .map((d) => `${d.name} (${d.date})`)
+            .join(", ");
 
-            await notifyOwner({
-              title: "Alerta: Edital com Prazos Críticos",
-              content: `O edital "${edital.fileName}" contém prazos críticos (menos de 7 dias): ${criticalDeadlines}`,
-            });
-          }
+          notifyOwner({
+            title: "⚠️ Edital com Prazos Críticos",
+            content: `O edital "${edital.fileName}" contém prazos críticos (menos de 7 dias): ${criticalDeadlines}`,
+          }).catch((err) => console.error("[upload] ETAPA 5 — falha ao notificar proprietário:", err));
+        }
 
-          return {
-            edital,
-            analysis: analysisRecord,
-          };
+        console.log("[upload] CONCLUÍDO com sucesso.");
+        return { edital, analysis: analysisRecord };
+      }),
+
+    list: protectedProcedure
+      .input(
+        z.object({
+          page: z.number().int().positive().default(1),
+          pageSize: z.number().int().min(1).max(100).default(20),
+        }).optional()
+      )
+      .query(async ({ ctx, input }) => {
+        const page = input?.page ?? 1;
+        const pageSize = input?.pageSize ?? 20;
+        try {
+          return await getEditalsByUserId(ctx.user.id, pageSize, (page - 1) * pageSize);
         } catch (error) {
-          console.error("Error processing edital:", error);
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to process edital",
-          });
+          console.error("[routers] Erro ao listar editais:", error);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao listar editais." });
         }
       }),
 
-    list: protectedProcedure.query(async ({ ctx }) => {
-      try {
-        const editals = await getEditalsByUserId(ctx.user.id);
-        return editals;
-      } catch (error) {
-        console.error("Error listing editals:", error);
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to list editals",
-        });
-      }
-    }),
-
     getAnalysis: protectedProcedure
-      .input(z.object({ editalId: z.number() }))
+      .input(z.object({ editalId: z.number().int().positive() }))
       .query(async ({ ctx, input }) => {
         try {
           const analysis = await getAnalysisByEditalId(input.editalId);
-          
-          if (analysis && analysis.userId !== ctx.user.id) {
+
+          if (!analysis) return null;
+
+          if (analysis.userId !== ctx.user.id) {
             throw new TRPCError({
               code: "FORBIDDEN",
-              message: "You do not have permission to view this analysis",
+              message: "Você não tem permissão para visualizar esta análise.",
             });
           }
-          
+
           return analysis;
         } catch (error) {
           if (error instanceof TRPCError) throw error;
-          console.error("Error getting analysis:", error);
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to get analysis",
-          });
+          console.error("[routers] Erro ao buscar análise:", error);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao buscar a análise." });
         }
       }),
   }),
