@@ -1,6 +1,6 @@
-import { useAuth } from "@/_core/hooks/useAuth";
+import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Upload, FileText, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useState, useRef } from "react";
 import { trpc } from "@/lib/trpc";
@@ -8,31 +8,13 @@ import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 export default function UploadPage() {
-  const { user, isAuthenticated } = useAuth();
+  const { user, logout } = useAuth();
   const [, setLocation] = useLocation();
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const uploadMutation = trpc.editals.upload.useMutation();
-
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <CardTitle>Acesso Restrito</CardTitle>
-            <CardDescription>Faça login para analisar editais</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button className="w-full" onClick={() => window.location.href = "/api/oauth/login"}>
-              Fazer Login
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -65,7 +47,7 @@ export default function UploadPage() {
     setIsUploading(true);
     try {
       const buffer = await file.arrayBuffer();
-      await uploadMutation.mutateAsync({
+      const result = await uploadMutation.mutateAsync({
         fileName: file.name,
         fileBuffer: new Uint8Array(buffer) as any,
         mimeType: file.type,
@@ -73,7 +55,7 @@ export default function UploadPage() {
       });
 
       toast.success("Edital analisado com sucesso!");
-      setTimeout(() => setLocation("/history"), 1500);
+      setTimeout(() => setLocation(`/analysis/${result.edital.id}`), 1500);
     } catch (error) {
       toast.error("Erro ao processar o edital. Tente novamente.");
       console.error(error);
@@ -85,18 +67,13 @@ export default function UploadPage() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-
     const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      processFile(files[0]);
-    }
+    if (files.length > 0) processFile(files[0]);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.currentTarget.files;
-    if (files && files.length > 0) {
-      processFile(files[0]);
-    }
+    if (files && files.length > 0) processFile(files[0]);
   };
 
   return (
@@ -209,8 +186,14 @@ export default function UploadPage() {
 
         {/* User Info */}
         {user && (
-          <div className="mt-12 text-center text-sm text-slate-600">
-            <p>Conectado como <span className="font-semibold text-slate-900">{user.name}</span></p>
+          <div className="mt-12 text-center text-sm text-slate-600 flex items-center justify-center gap-4">
+            <p>Conectado como <span className="font-semibold text-slate-900">{user.displayName || user.email}</span></p>
+            <button
+              onClick={logout}
+              className="text-red-500 hover:underline text-xs"
+            >
+              Sair
+            </button>
           </div>
         )}
       </div>

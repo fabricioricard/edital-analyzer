@@ -1,4 +1,4 @@
-import { useAuth } from "@/_core/hooks/useAuth";
+import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +18,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AnalysisPage() {
-  const { isAuthenticated } = useAuth();
+  const { user } = useAuth();
   const [match, params] = useRoute("/analysis/:editalId");
   const [, setLocation] = useLocation();
 
@@ -26,16 +26,8 @@ export default function AnalysisPage() {
 
   const { data: analysis, isLoading, error } = trpc.editals.getAnalysis.useQuery(
     { editalId: editalId! },
-    { enabled: !!editalId && isAuthenticated }
+    { enabled: !!editalId && !!user }
   );
-
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-slate-600">Faça login para visualizar análises</p>
-      </div>
-    );
-  }
 
   if (isLoading) {
     return (
@@ -81,13 +73,8 @@ export default function AnalysisPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 py-8 px-4">
       <div className="max-w-4xl mx-auto">
-        {/* Header */}
         <div className="flex items-center justify-between mb-8">
-          <Button
-            variant="ghost"
-            onClick={() => setLocation("/history")}
-            className="gap-2"
-          >
+          <Button variant="ghost" onClick={() => setLocation("/history")} className="gap-2">
             <ArrowLeft className="w-4 h-4" />
             Voltar
           </Button>
@@ -97,7 +84,6 @@ export default function AnalysisPage() {
           </Button>
         </div>
 
-        {/* Summary */}
         <Card className="mb-8 border-slate-200">
           <CardHeader>
             <CardTitle className="text-2xl">Resumo da Análise</CardTitle>
@@ -107,7 +93,6 @@ export default function AnalysisPage() {
           </CardContent>
         </Card>
 
-        {/* Critical Alerts */}
         {(criticalDeadlines.length > 0 || highAlerts.length > 0) && (
           <Alert className="mb-8 border-red-200 bg-red-50">
             <AlertCircle className="h-4 w-4 text-red-600" />
@@ -120,48 +105,31 @@ export default function AnalysisPage() {
           </Alert>
         )}
 
-        {/* Deadlines Section */}
         <Card className="mb-8 border-slate-200">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Calendar className="w-5 h-5 text-blue-600" />
               Prazos Importantes
             </CardTitle>
-            <CardDescription>
-              {analysis.deadlines?.length || 0} prazo(s) identificado(s)
-            </CardDescription>
+            <CardDescription>{analysis.deadlines?.length || 0} prazo(s) identificado(s)</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {analysis.deadlines && analysis.deadlines.length > 0 ? (
                 analysis.deadlines.map((deadline: any, idx: number) => (
-                  <div
-                    key={idx}
-                    className={`p-4 rounded-lg border-2 ${
-                      deadline.isCritical
-                        ? "border-red-300 bg-red-50"
-                        : "border-slate-200 bg-slate-50"
-                    }`}
-                  >
+                  <div key={idx} className={`p-4 rounded-lg border-2 ${deadline.isCritical ? "border-red-300 bg-red-50" : "border-slate-200 bg-slate-50"}`}>
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <h4 className="font-semibold text-slate-900">
-                          {deadline.name}
-                        </h4>
-                        <p className="text-sm text-slate-600 mt-1">
-                          {deadline.date}
-                        </p>
+                        <h4 className="font-semibold text-slate-900">{deadline.name}</h4>
+                        <p className="text-sm text-slate-600 mt-1">{deadline.date}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         {deadline.isCritical ? (
                           <Badge variant="destructive" className="gap-1">
-                            <Clock className="w-3 h-3" />
-                            {deadline.daysUntil} dias
+                            <Clock className="w-3 h-3" />{deadline.daysUntil} dias
                           </Badge>
                         ) : (
-                          <Badge variant="outline">
-                            {deadline.daysUntil} dias
-                          </Badge>
+                          <Badge variant="outline">{deadline.daysUntil} dias</Badge>
                         )}
                       </div>
                     </div>
@@ -174,31 +142,23 @@ export default function AnalysisPage() {
           </CardContent>
         </Card>
 
-        {/* Requirements Section */}
         <Card className="mb-8 border-slate-200">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-green-600" />
               Requisitos
             </CardTitle>
-            <CardDescription>
-              {analysis.requirements?.length || 0} categoria(s) de requisitos
-            </CardDescription>
+            <CardDescription>{analysis.requirements?.length || 0} categoria(s) de requisitos</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
               {analysis.requirements && analysis.requirements.length > 0 ? (
                 analysis.requirements.map((req: any, idx: number) => (
                   <div key={idx}>
-                    <h4 className="font-semibold text-slate-900 mb-3">
-                      {req.category}
-                    </h4>
+                    <h4 className="font-semibold text-slate-900 mb-3">{req.category}</h4>
                     <ul className="space-y-2">
                       {req.items.map((item: string, itemIdx: number) => (
-                        <li
-                          key={itemIdx}
-                          className="flex items-start gap-3 text-slate-700"
-                        >
+                        <li key={itemIdx} className="flex items-start gap-3 text-slate-700">
                           <span className="text-blue-600 font-bold mt-0.5">•</span>
                           <span>{item}</span>
                         </li>
@@ -213,23 +173,16 @@ export default function AnalysisPage() {
           </CardContent>
         </Card>
 
-        {/* Selection Criteria */}
         {analysis.selectionCriteria && analysis.selectionCriteria.length > 0 && (
           <Card className="mb-8 border-slate-200">
-            <CardHeader>
-              <CardTitle>Critérios de Seleção</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Critérios de Seleção</CardTitle></CardHeader>
             <CardContent>
               <div className="space-y-4">
                 {analysis.selectionCriteria.map((criterion: any, idx: number) => (
                   <div key={idx} className="p-4 bg-slate-50 rounded-lg border border-slate-200">
                     <div className="flex items-start justify-between mb-2">
-                      <h4 className="font-semibold text-slate-900">
-                        {criterion.criterion}
-                      </h4>
-                      {criterion.weight && (
-                        <Badge variant="secondary">{criterion.weight}%</Badge>
-                      )}
+                      <h4 className="font-semibold text-slate-900">{criterion.criterion}</h4>
+                      {criterion.weight && <Badge variant="secondary">{criterion.weight}%</Badge>}
                     </div>
                     <p className="text-sm text-slate-700">{criterion.description}</p>
                   </div>
@@ -239,7 +192,6 @@ export default function AnalysisPage() {
           </Card>
         )}
 
-        {/* Required Documents */}
         {analysis.requiredDocuments && analysis.requiredDocuments.length > 0 && (
           <Card className="mb-8 border-slate-200">
             <CardHeader>
@@ -261,7 +213,6 @@ export default function AnalysisPage() {
           </Card>
         )}
 
-        {/* Alerts */}
         {analysis.alerts && analysis.alerts.length > 0 && (
           <Card className="mb-8 border-slate-200">
             <CardHeader>
@@ -273,20 +224,9 @@ export default function AnalysisPage() {
             <CardContent>
               <div className="space-y-3">
                 {analysis.alerts.map((alert: any, idx: number) => (
-                  <Alert
-                    key={idx}
-                    className={`border-l-4 ${
-                      alert.severity === "high"
-                        ? "border-l-red-500 bg-red-50"
-                        : alert.severity === "medium"
-                        ? "border-l-amber-500 bg-amber-50"
-                        : "border-l-blue-500 bg-blue-50"
-                    }`}
-                  >
+                  <Alert key={idx} className={`border-l-4 ${alert.severity === "high" ? "border-l-red-500 bg-red-50" : alert.severity === "medium" ? "border-l-amber-500 bg-amber-50" : "border-l-blue-500 bg-blue-50"}`}>
                     <AlertDescription>
-                      <div className="font-semibold text-sm mb-1">
-                        {alert.category}
-                      </div>
+                      <div className="font-semibold text-sm mb-1">{alert.category}</div>
                       <div className="text-sm">{alert.message}</div>
                     </AlertDescription>
                   </Alert>
@@ -296,19 +236,14 @@ export default function AnalysisPage() {
           </Card>
         )}
 
-        {/* Penalties */}
         {analysis.penalties && analysis.penalties.length > 0 && (
           <Card className="border-slate-200">
-            <CardHeader>
-              <CardTitle>Penalidades</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Penalidades</CardTitle></CardHeader>
             <CardContent>
               <div className="space-y-4">
                 {analysis.penalties.map((penalty: any, idx: number) => (
                   <div key={idx} className="p-4 bg-red-50 rounded-lg border border-red-200">
-                    <h4 className="font-semibold text-slate-900 mb-2">
-                      {penalty.violation}
-                    </h4>
+                    <h4 className="font-semibold text-slate-900 mb-2">{penalty.violation}</h4>
                     <p className="text-sm text-slate-700">{penalty.penalty}</p>
                   </div>
                 ))}
@@ -324,49 +259,32 @@ export default function AnalysisPage() {
 function generateTextReport(analysis: any): string {
   let report = "RELATÓRIO DE ANÁLISE DE EDITAL\n";
   report += "=".repeat(60) + "\n\n";
-
-  report += "RESUMO\n";
-  report += "-".repeat(60) + "\n";
-  report += analysis.summary + "\n\n";
-
-  if (analysis.deadlines && analysis.deadlines.length > 0) {
-    report += "PRAZOS IMPORTANTES\n";
-    report += "-".repeat(60) + "\n";
+  report += "RESUMO\n" + "-".repeat(60) + "\n" + analysis.summary + "\n\n";
+  if (analysis.deadlines?.length > 0) {
+    report += "PRAZOS IMPORTANTES\n" + "-".repeat(60) + "\n";
     analysis.deadlines.forEach((d: any) => {
       report += `• ${d.name}: ${d.date} (${d.daysUntil} dias)${d.isCritical ? " [CRÍTICO]" : ""}\n`;
     });
     report += "\n";
   }
-
-  if (analysis.requirements && analysis.requirements.length > 0) {
-    report += "REQUISITOS\n";
-    report += "-".repeat(60) + "\n";
+  if (analysis.requirements?.length > 0) {
+    report += "REQUISITOS\n" + "-".repeat(60) + "\n";
     analysis.requirements.forEach((req: any) => {
       report += `${req.category}:\n`;
-      req.items.forEach((item: string) => {
-        report += `  • ${item}\n`;
-      });
+      req.items.forEach((item: string) => { report += `  • ${item}\n`; });
     });
     report += "\n";
   }
-
-  if (analysis.requiredDocuments && analysis.requiredDocuments.length > 0) {
-    report += "DOCUMENTOS EXIGIDOS\n";
-    report += "-".repeat(60) + "\n";
-    analysis.requiredDocuments.forEach((doc: string) => {
-      report += `• ${doc}\n`;
-    });
+  if (analysis.requiredDocuments?.length > 0) {
+    report += "DOCUMENTOS EXIGIDOS\n" + "-".repeat(60) + "\n";
+    analysis.requiredDocuments.forEach((doc: string) => { report += `• ${doc}\n`; });
     report += "\n";
   }
-
-  if (analysis.alerts && analysis.alerts.length > 0) {
-    report += "PONTOS DE ATENÇÃO\n";
-    report += "-".repeat(60) + "\n";
+  if (analysis.alerts?.length > 0) {
+    report += "PONTOS DE ATENÇÃO\n" + "-".repeat(60) + "\n";
     analysis.alerts.forEach((alert: any) => {
       report += `[${alert.severity.toUpperCase()}] ${alert.category}: ${alert.message}\n`;
     });
-    report += "\n";
   }
-
   return report;
 }
