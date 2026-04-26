@@ -148,7 +148,7 @@ JSON esperado:
 
   const response = await client.messages.create({
     model: "claude-haiku-4-5-20251001", // ~20x mais barato que Sonnet, ~1.600 análises por $5
-    max_tokens: 4096,
+    max_tokens: 8096, // aumentado para evitar JSON truncado
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
   });
@@ -158,7 +158,17 @@ JSON esperado:
     throw new Error("Resposta inesperada da API Anthropic");
   }
 
-  const cleaned = cleanJsonResponse(rawContent.text);
+  // Se o modelo parou por max_tokens, tenta fechar o JSON incompleto
+  let rawText = rawContent.text;
+  if (response.stop_reason === "max_tokens") {
+    console.warn("[editalAnalyzer] Resposta truncada — tentando recuperar JSON");
+    const openBraces = (rawText.match(/{/g) || []).length - (rawText.match(/}/g) || []).length;
+    const openBrackets = (rawText.match(/\[/g) || []).length - (rawText.match(/]/g) || []).length;
+    rawText = rawText.replace(/,\s*$/, "").replace(/[^}\]]*$/, "");
+    rawText += "]".repeat(Math.max(0, openBrackets)) + "}".repeat(Math.max(0, openBraces));
+  }
+
+  const cleaned = cleanJsonResponse(rawText);
 
   let parsed: any;
   try {
