@@ -122,7 +122,7 @@ export const appRouter = router({
             penalties: analysis.penalties as any,
             alerts: analysis.alerts as any,
             hasCriticalDeadline: analysis.hasCriticalDeadline,
-            rawText: text,
+            // rawText omitido — texto muito grande para salvar no banco
           });
           console.log("[upload] ETAPA 4 OK — analysis id:", analysisRecord?.id);
         } catch (err) {

@@ -128,7 +128,8 @@ Regras obrigatórias:
 - title = título/número oficial do edital
 - organization = nome do órgão/entidade responsável`;
 
-  const userPrompt = `Analise o edital abaixo e retorne APENAS o JSON, sem markdown:
+  const userPrompt = `Analise o edital abaixo e retorne APENAS o JSON, sem markdown.
+Seja CONCISO: máximo 5 itens por array, resumos curtos (1 frase cada item).
 
 EDITAL:
 ${textToAnalyze}
@@ -137,7 +138,7 @@ JSON esperado:
 {
   "title": "",
   "organization": "",
-  "summary": "2-3 frases resumindo o edital",
+  "summary": "resumo em 2 frases",
   "deadlines": [{ "name": "", "date": "YYYY-MM-DD", "daysUntil": 0, "isCritical": false }],
   "requirements": [{ "category": "", "items": [""] }],
   "selectionCriteria": [{ "criterion": "", "weight": 0, "description": "" }],
@@ -148,7 +149,7 @@ JSON esperado:
 
   const response = await client.messages.create({
     model: "claude-haiku-4-5-20251001", // ~20x mais barato que Sonnet, ~1.600 análises por $5
-    max_tokens: 8096, // aumentado para evitar JSON truncado
+    max_tokens: 8192, // máximo suportado pelo Haiku
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
   });
