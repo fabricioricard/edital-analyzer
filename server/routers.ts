@@ -12,7 +12,6 @@ import {
   getEditalsByUserId,
   getAnalysisByEditalId,
 } from "./db";
-import { notifyOwner } from "./_core/notification";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
@@ -32,7 +31,6 @@ export const appRouter = router({
       .input(
         z.object({
           fileName: z.string().min(1).max(255),
-          // O browser envia Uint8Array; Node usa Buffer — aceitamos ambos e normalizamos
           fileBuffer: z
             .instanceof(Buffer)
             .or(z.instanceof(Uint8Array))
@@ -85,9 +83,7 @@ export const appRouter = router({
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao analisar o edital com IA." });
         }
 
-        // ── Etapa 3: Criar registro do edital (sem S3) ────────────────────
-        // fileKey e fileUrl ficam vazios — o arquivo original não é armazenado,
-        // apenas a análise estruturada persiste no banco.
+        // ── Etapa 3: Criar registro do edital ─────────────────────────────
         let edital: Awaited<ReturnType<typeof createEdital>>;
         try {
           console.log("[upload] ETAPA 3 — criando registro no banco...");
@@ -136,19 +132,6 @@ export const appRouter = router({
 
         if (!analysisRecord) {
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao salvar a análise no banco de dados." });
-        }
-
-        // ── Etapa 5: Notificação (background) ────────────────────────────
-        if (analysis.hasCriticalDeadline) {
-          const criticalDeadlines = analysis.deadlines
-            .filter((d) => d.isCritical)
-            .map((d) => `${d.name} (${d.date})`)
-            .join(", ");
-
-          notifyOwner({
-            title: "⚠️ Edital com Prazos Críticos",
-            content: `O edital "${edital.fileName}" contém prazos críticos (menos de 7 dias): ${criticalDeadlines}`,
-          }).catch((err) => console.error("[upload] ETAPA 5 — falha ao notificar proprietário:", err));
         }
 
         console.log("[upload] CONCLUÍDO com sucesso.");
