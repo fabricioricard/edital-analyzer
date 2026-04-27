@@ -1,7 +1,7 @@
 import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Upload, FileText, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Upload, FileText, AlertCircle, CheckCircle2, History } from "lucide-react";
 import { useState, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -80,6 +80,18 @@ export default function UploadPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 py-12 px-4">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div />
+          <Button
+            variant="outline"
+            onClick={() => setLocation("/history")}
+            className="gap-2 text-slate-600"
+          >
+            <History className="w-4 h-4" />
+            Histórico de Análises
+          </Button>
+        </div>
+
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold text-slate-900 mb-3">
             Analisador Inteligente de Editais
