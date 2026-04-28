@@ -12,6 +12,7 @@ import { useLocation, useRoute } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import jsPDF from "jspdf";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -223,36 +224,156 @@ export default function AnalysisPage() {
   }
 
   const handleExport = () => {
-    const lines = [
-      "RELATÓRIO DE ANÁLISE DE EDITAL",
-      "=".repeat(60),
-      "",
-      "RESUMO", "-".repeat(60), analysis.summary || "", "",
-    ];
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const margin = 15;
+    const maxW = pageW - margin * 2;
+    let y = 20;
+
+    const addPage = () => {
+      doc.addPage();
+      y = 20;
+    };
+
+    const checkY = (needed = 10) => {
+      if (y + needed > 270) addPage();
+    };
+
+    const addTitle = (text: string) => {
+      checkY(12);
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(30, 64, 175);
+      doc.text(text, margin, y);
+      y += 2;
+      doc.setDrawColor(30, 64, 175);
+      doc.setLineWidth(0.4);
+      doc.line(margin, y, pageW - margin, y);
+      y += 6;
+      doc.setTextColor(30, 30, 30);
+    };
+
+    const addBody = (text: string, indent = 0) => {
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(50, 50, 50);
+      const lines = doc.splitTextToSize(text, maxW - indent);
+      checkY(lines.length * 5);
+      doc.text(lines, margin + indent, y);
+      y += lines.length * 5 + 1;
+    };
+
+    const addLabel = (text: string) => {
+      checkY(7);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(30, 30, 30);
+      doc.text(text, margin, y);
+      y += 6;
+    };
+
+    const addBadge = (text: string, color: [number, number, number]) => {
+      doc.setFillColor(...color);
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      const w = doc.getTextWidth(text) + 6;
+      doc.roundedRect(margin, y - 4, w, 5.5, 1, 1, "F");
+      doc.text(text, margin + 3, y);
+      y += 7;
+      doc.setTextColor(50, 50, 50);
+    };
+
+    // ── Cabeçalho ──
+    doc.setFillColor(30, 64, 175);
+    doc.rect(0, 0, pageW, 16, "F");
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("Edital Analyzer", margin, 10);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.text("Relatório de Análise", pageW - margin, 10, { align: "right" });
+    y = 26;
+
+    // ── Resumo ──
+    addTitle("Resumo");
+    addBody(analysis.summary || "Não disponível.");
+    y += 4;
+
+    // ── Prazos ──
     if (analysis.deadlines?.length) {
-      lines.push("PRAZOS", "-".repeat(60));
-      analysis.deadlines.forEach((d: any) => lines.push(`• ${d.name}: ${formatDate(d.date)} (${d.daysUntil} dias)${d.isCritical ? " [CRÍTICO]" : ""}`));
-      lines.push("");
+      addTitle("Prazos Importantes");
+      analysis.deadlines.forEach((d: any) => {
+        const risk = d.daysUntil < 0 ? "Encerrado" : d.daysUntil <= 3 ? "Crítico" : d.daysUntil <= 7 ? "Urgente" : `${d.daysUntil} dias`;
+        const color: [number, number, number] = d.daysUntil <= 3 ? [220, 38, 38] : d.daysUntil <= 7 ? [234, 88, 12] : d.daysUntil <= 30 ? [217, 119, 6] : [22, 163, 74];
+        checkY(14);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(30, 30, 30);
+        doc.text(`• ${d.name}`, margin + 2, y);
+        y += 5;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(80, 80, 80);
+        doc.text(`  Data: ${formatDate(d.date)}`, margin + 4, y);
+        y += 4;
+        addBadge(risk, color);
+      });
+      y += 2;
     }
+
+    // ── Requisitos ──
     if (analysis.requirements?.length) {
-      lines.push("REQUISITOS", "-".repeat(60));
-      analysis.requirements.forEach((r: any) => { lines.push(`${r.category}:`); r.items?.forEach((i: string) => lines.push(`  • ${i}`)); });
-      lines.push("");
+      addTitle("Requisitos");
+      analysis.requirements.forEach((r: any) => {
+        addLabel(`${r.category}`);
+        r.items?.forEach((item: string) => addBody(`• ${item}`, 4));
+        y += 2;
+      });
     }
+
+    // ── Documentos ──
     if (analysis.requiredDocuments?.length) {
-      lines.push("DOCUMENTOS EXIGIDOS", "-".repeat(60));
-      analysis.requiredDocuments.forEach((d: string) => lines.push(`• ${d}`));
-      lines.push("");
+      addTitle("Documentos Exigidos");
+      analysis.requiredDocuments.forEach((d: string) => addBody(`• ${d}`, 2));
+      y += 2;
     }
+
+    // ── Alertas ──
     if (analysis.alerts?.length) {
-      lines.push("PONTOS DE ATENÇÃO", "-".repeat(60));
-      analysis.alerts.forEach((a: any) => lines.push(`[${a.severity.toUpperCase()}] ${a.category}: ${a.message}`));
+      addTitle("Pontos de Atenção");
+      analysis.alerts.forEach((a: any) => {
+        const color: [number, number, number] = a.severity === "high" ? [220, 38, 38] : a.severity === "medium" ? [217, 119, 6] : [37, 99, 235];
+        const label = a.severity === "high" ? "ALTO" : a.severity === "medium" ? "MÉDIO" : "BAIXO";
+        checkY(14);
+        addBadge(`${label} — ${a.category}`, color);
+        addBody(a.message, 2);
+        y += 2;
+      });
     }
-    const el = document.createElement("a");
-    el.setAttribute("href", "data:text/plain;charset=utf-8," + encodeURIComponent(lines.join("\n")));
-    el.setAttribute("download", `analise-${analysis.id}.txt`);
-    el.click();
-    toast.success("Relatório exportado!");
+
+    // ── Penalidades ──
+    if (analysis.penalties?.length) {
+      addTitle("Penalidades");
+      analysis.penalties.forEach((p: any) => {
+        addLabel(`• ${p.violation}`);
+        addBody(p.penalty, 4);
+        y += 2;
+      });
+    }
+
+    // ── Rodapé ──
+    const pageCount = (doc.internal as any).getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Gerado por Edital Analyzer • Página ${i} de ${pageCount}`, pageW / 2, 290, { align: "center" });
+    }
+
+    doc.save(`analise-edital-${analysis.id}.pdf`);
+    toast.success("PDF exportado com sucesso!");
   };
 
   const criticalCount = analysis.deadlines?.filter((d: any) => d.isCritical).length || 0;
