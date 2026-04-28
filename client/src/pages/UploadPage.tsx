@@ -77,26 +77,41 @@ export default function UploadPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 py-12 px-4">
-      <div className="max-w-2xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
+      {/* Navbar */}
+      <nav className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-slate-200 px-6 py-3">
+        <div className="max-w-2xl mx-auto flex items-center justify-between">
+          {/* Logo / Nome do projeto */}
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-sm">
+              <FileText className="w-4 h-4 text-white" />
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-base font-bold text-slate-900 tracking-tight">Edital</span>
+              <span className="text-base font-bold text-blue-600 tracking-tight">Analyzer</span>
+            </div>
+          </div>
+
+          {/* Botão Histórico */}
           <Button
             variant="outline"
+            size="sm"
             onClick={() => setLocation("/history")}
-            className="gap-2 text-slate-600"
+            className="gap-2 text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600 transition-colors"
           >
             <History className="w-4 h-4" />
-            Histórico de Análises
+            Histórico
           </Button>
         </div>
+      </nav>
 
+      <div className="max-w-2xl mx-auto px-4 py-12">
+        {/* Hero */}
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold text-slate-900 mb-3">
             Analisador Inteligente de Editais
           </h1>
-          <p className="text-lg text-slate-600">
+          <p className="text-lg text-slate-500">
             Faça upload de seus editais e receba uma análise estruturada e completa
           </p>
         </div>
@@ -132,7 +147,7 @@ export default function UploadPage() {
               <h3 className="text-xl font-semibold text-slate-900 mb-2">
                 Arraste seu edital aqui
               </h3>
-              <p className="text-slate-600 mb-6">
+              <p className="text-slate-500 mb-6">
                 ou clique para selecionar um arquivo
               </p>
 
@@ -144,7 +159,7 @@ export default function UploadPage() {
                 {isUploading ? "Processando..." : "Selecionar Arquivo"}
               </Button>
 
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-slate-400">
                 Formatos suportados: PDF, DOCX (máximo 50MB)
               </p>
             </div>
@@ -152,58 +167,50 @@ export default function UploadPage() {
         </Card>
 
         {/* Features */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">
-          <Card className="border-slate-200">
-            <CardHeader>
-              <div className="flex items-center gap-2 mb-2">
-                <CheckCircle2 className="w-5 h-5 text-green-600" />
-                <CardTitle className="text-base">Extração Precisa</CardTitle>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-10">
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg bg-green-100 flex items-center justify-center">
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
               </div>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-slate-600">
-                Análise inteligente via IA para extrair todas as informações críticas
-              </p>
-            </CardContent>
-          </Card>
+              <span className="font-semibold text-sm text-slate-800">Extração Precisa</span>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Análise inteligente via IA para extrair todas as informações críticas
+            </p>
+          </div>
 
-          <Card className="border-slate-200">
-            <CardHeader>
-              <div className="flex items-center gap-2 mb-2">
-                <FileText className="w-5 h-5 text-blue-600" />
-                <CardTitle className="text-base">Estruturado</CardTitle>
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center">
+                <FileText className="w-4 h-4 text-blue-600" />
               </div>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-slate-600">
-                Informações organizadas em seções claras: prazos, requisitos, alertas
-              </p>
-            </CardContent>
-          </Card>
+              <span className="font-semibold text-sm text-slate-800">Estruturado</span>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Informações organizadas em seções claras: prazos, requisitos, alertas
+            </p>
+          </div>
 
-          <Card className="border-slate-200">
-            <CardHeader>
-              <div className="flex items-center gap-2 mb-2">
-                <AlertCircle className="w-5 h-5 text-amber-600" />
-                <CardTitle className="text-base">Alertas</CardTitle>
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center">
+                <AlertCircle className="w-4 h-4 text-amber-600" />
               </div>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-slate-600">
-                Destaque automático de prazos críticos e pontos de atenção importantes
-              </p>
-            </CardContent>
-          </Card>
+              <span className="font-semibold text-sm text-slate-800">Alertas</span>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Destaque automático de prazos críticos e pontos de atenção importantes
+            </p>
+          </div>
         </div>
 
-        {/* User Info */}
+        {/* User info */}
         {user && (
-          <div className="mt-12 text-center text-sm text-slate-600 flex items-center justify-center gap-4">
-            <p>Conectado como <span className="font-semibold text-slate-900">{user.displayName || user.email}</span></p>
-            <button
-              onClick={logout}
-              className="text-red-500 hover:underline text-xs"
-            >
+          <div className="mt-10 text-center text-xs text-slate-400 flex items-center justify-center gap-3">
+            <span>Conectado como <span className="font-medium text-slate-600">{user.displayName || user.email}</span></span>
+            <span className="text-slate-200">|</span>
+            <button onClick={logout} className="text-slate-400 hover:text-red-500 transition-colors">
               Sair
             </button>
           </div>
