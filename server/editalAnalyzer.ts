@@ -1,5 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+export interface DocumentGroup {
+  category: string;
+  documents: string[];
+}
+
 export interface EditalAnalysisResult {
   title: string;
   organization: string;
@@ -19,7 +24,8 @@ export interface EditalAnalysisResult {
     weight?: number;
     description: string;
   }>;
-  requiredDocuments: string[];
+  requiredDocuments: string[];         // mantido para compatibilidade
+  documentGroups: DocumentGroup[];     // novo: documentos segmentados por categoria
   penalties: Array<{
     violation: string;
     penalty: string;
@@ -37,9 +43,7 @@ let _client: Anthropic | null = null;
 function getAnthropicClient(): Anthropic {
   if (!_client) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      throw new Error("ANTHROPIC_API_KEY não definida. Adicione-a ao arquivo .env");
-    }
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY não definida. Adicione-a ao arquivo .env");
     _client = new Anthropic({ apiKey });
   }
   return _client;
@@ -64,11 +68,8 @@ export function calculateDaysUntil(dateString: string): number {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     targetDate.setHours(0, 0, 0, 0);
-    const diffMs = targetDate.getTime() - today.getTime();
-    return Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  } catch {
-    return -1;
-  }
+    return Math.floor((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  } catch { return -1; }
 }
 
 export function hasCriticalDeadlines(deadlines: Array<{ daysUntil: number }>): boolean {
@@ -76,11 +77,7 @@ export function hasCriticalDeadlines(deadlines: Array<{ daysUntil: number }>): b
 }
 
 function cleanJsonResponse(raw: string): string {
-  return raw
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```\s*$/i, "")
-    .trim();
+  return raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
 }
 
 export async function analyzeEdital(editalText: string): Promise<EditalAnalysisResult> {
@@ -96,34 +93,43 @@ REGRAS CRÍTICAS — siga todas sem exceção:
 
 SOBRE PRAZOS (deadlines):
 - Inclua APENAS datas de encerramento/limite para ações do processo licitatório (ex: prazo para entrega de propostas, data da sessão pública, prazo para recursos, prazo para impugnação)
-- NUNCA inclua prazos de execução contratual, vigência do contrato ou duração dos serviços como entradas em deadlines
-- Se o edital mencionar "prazo de execução de X meses", "vigência de X meses", "duração de X dias" — coloque isso como alerta com severity "high", NÃO como deadline
-- Datas devem estar no formato YYYY-MM-DD; daysUntil sempre 0 e isCritical sempre false
+- NUNCA inclua prazos de execução contratual, vigência do contrato ou duração dos serviços como deadlines
+- Se o edital mencionar "prazo de execução de X meses", "vigência de X meses" — coloque como alerta severity "high", NÃO como deadline
+- Datas no formato YYYY-MM-DD; daysUntil sempre 0 e isCritical sempre false
 
 SOBRE REQUISITOS (requirements):
 - Use o nome EXATO da categoria como está escrito no edital
-- Se o edital agrupa "Regularidade Jurídica, Fiscal e Trabalhista" em uma seção, use exatamente esse nome — NÃO divida em categorias separadas
-- Se o edital tiver seções separadas, mantenha separadas
-- Cada categoria pode ter muitos itens — liste TODOS, sem omitir nenhum
+- Se o edital agrupa "Regularidade Jurídica, Fiscal e Trabalhista" em uma seção, use exatamente esse nome
+- Cada categoria pode ter muitos itens — liste TODOS
+
+SOBRE DOCUMENTOS SEGMENTADOS (documentGroups):
+- Este é o campo mais importante — extraia os documentos organizados nas categorias EXATAS do edital
+- Identifique cada grupo/seção de documentos que o edital solicita e mantenha a ORDEM ORIGINAL do edital
+- Exemplos de categorias comuns (use o nome exato do edital, não esses exemplos):
+  * "Documentos de Habilitação Jurídica"
+  * "Documentos de Regularidade Fiscal e Trabalhista"
+  * "Documentos de Qualificação Econômico-Financeira"
+  * "Documentos de Qualificação Técnica"
+  * "Documentos da Proposta Técnica"
+  * "Documentos da Proposta de Preços"
+- Para cada categoria, liste TODOS os documentos com seus nomes COMPLETOS e EXATOS
+- NUNCA abrevie nomes de documentos (ex: ERRADO "Cadastro Estadual" — CORRETO "Cadastro de Contribuinte Estadual ou Municipal")
+- Se um documento tiver subinformações (ex: prazo de validade, número de vias), inclua no nome
 
 SOBRE DOCUMENTOS (requiredDocuments):
-- Preserve o nome COMPLETO e EXATO de cada documento como escrito no edital — palavra por palavra
-- NUNCA abrevie, parafraseie ou omita palavras do nome do documento
-- Exemplos de erros a evitar:
-  * ERRADO: "Cadastro Estadual ou Municipal" — CORRETO: "Cadastro de Contribuinte Estadual ou Municipal"
-  * ERRADO: "Certidão Negativa Federal" — CORRETO: "Certidão Negativa de Débitos relativos a Créditos Tributários Federais e à Dívida Ativa da União"
-- Em caso de dúvida, copie o nome do documento diretamente do texto do edital
+- Preencha com a lista plana de TODOS os documentos (concatenação de todos os grupos)
+- Mesmas regras de fidelidade ao nome exato
 
 SOBRE CRITÉRIOS DE SELEÇÃO:
-- Liste todos os critérios com seus pesos percentuais exatos se mencionados no edital
+- Liste todos com pesos percentuais exatos se mencionados
 
 REGRAS GERAIS:
-- Não invente informações — retorne array vazio se não encontrar
-- title = título/número oficial do edital exatamente como escrito
-- organization = nome completo do órgão/entidade responsável`;
+- Não invente — retorne array vazio se não encontrar
+- title = título/número oficial exato
+- organization = nome completo do órgão`;
 
   const userPrompt = `Analise o edital abaixo e retorne APENAS o JSON, sem markdown.
-Seja fiel ao texto original: use os nomes exatos de categorias e documentos conforme aparecem no edital.
+Use os nomes exatos de categorias e documentos conforme aparecem no edital, na ordem original.
 
 EDITAL:
 ${textToAnalyze}
@@ -134,20 +140,26 @@ Retorne APENAS este JSON:
   "organization": "nome completo do órgão",
   "summary": "2 frases descrevendo objeto e valor estimado se houver",
   "deadlines": [
-    { "name": "nome exato do prazo (ex: Prazo para entrega de propostas)", "date": "YYYY-MM-DD", "daysUntil": 0, "isCritical": false }
+    { "name": "nome exato do prazo", "date": "YYYY-MM-DD", "daysUntil": 0, "isCritical": false }
   ],
   "requirements": [
-    { "category": "nome exato da categoria no edital", "items": ["requisito completo sem abreviação"] }
+    { "category": "nome exato da categoria no edital", "items": ["requisito completo"] }
   ],
   "selectionCriteria": [
     { "criterion": "nome do critério", "weight": 0, "description": "descrição completa" }
   ],
-  "requiredDocuments": ["nome completo e exato do documento sem abreviações"],
+  "documentGroups": [
+    {
+      "category": "nome exato da seção de documentos no edital (ex: Documentos da Proposta Técnica)",
+      "documents": ["nome completo e exato do documento conforme o edital"]
+    }
+  ],
+  "requiredDocuments": ["lista plana de todos os documentos — mesmos do documentGroups concatenados"],
   "penalties": [
     { "violation": "descrição da infração", "penalty": "sanção aplicada" }
   ],
   "alerts": [
-    { "severity": "high", "message": "ex: Prazo de execução dos serviços: 20 meses consecutivos", "category": "Prazo de Execução" }
+    { "severity": "high", "message": "descrição do alerta", "category": "categoria" }
   ]
 }`;
 
@@ -159,9 +171,7 @@ Retorne APENAS este JSON:
   });
 
   const rawContent = response.content[0];
-  if (!rawContent || rawContent.type !== "text") {
-    throw new Error("Resposta inesperada da API Anthropic");
-  }
+  if (!rawContent || rawContent.type !== "text") throw new Error("Resposta inesperada da API Anthropic");
 
   let rawText = rawContent.text;
   if (response.stop_reason === "max_tokens") {
@@ -173,7 +183,6 @@ Retorne APENAS este JSON:
   }
 
   const cleaned = cleanJsonResponse(rawText);
-
   let parsed: any;
   try {
     parsed = JSON.parse(cleaned);
@@ -184,13 +193,15 @@ Retorne APENAS este JSON:
 
   const deadlines = (parsed.deadlines ?? []).map((d: any) => {
     const daysUntil = calculateDaysUntil(d.date);
-    return {
-      name: d.name ?? "",
-      date: d.date ?? "",
-      daysUntil,
-      isCritical: daysUntil > 0 && daysUntil < 7,
-    };
+    return { name: d.name ?? "", date: d.date ?? "", daysUntil, isCritical: daysUntil > 0 && daysUntil < 7 };
   });
+
+  // Se documentGroups não veio, gera a partir de requiredDocuments para compatibilidade
+  const documentGroups: DocumentGroup[] = parsed.documentGroups?.length
+    ? parsed.documentGroups
+    : parsed.requiredDocuments?.length
+    ? [{ category: "Documentos Exigidos", documents: parsed.requiredDocuments }]
+    : [];
 
   return {
     title: parsed.title ?? "",
@@ -200,6 +211,7 @@ Retorne APENAS este JSON:
     requirements: parsed.requirements ?? [],
     selectionCriteria: parsed.selectionCriteria ?? [],
     requiredDocuments: parsed.requiredDocuments ?? [],
+    documentGroups,
     penalties: parsed.penalties ?? [],
     alerts: parsed.alerts ?? [],
     hasCriticalDeadline: hasCriticalDeadlines(deadlines),

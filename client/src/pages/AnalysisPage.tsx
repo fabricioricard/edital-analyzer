@@ -121,18 +121,54 @@ function RequirementsTab({ requirements }: { requirements: any[] }) {
   );
 }
 
-function DocumentsTab({ documents }: { documents: string[] }) {
-  if (!documents?.length) return <Empty text="Nenhum documento identificado" />;
+function DocumentsTab({ documentGroups, documents }: { documentGroups: any[], documents: string[] }) {
+  const groups = documentGroups?.length
+    ? documentGroups
+    : documents?.length
+    ? [{ category: "Documentos Exigidos", documents }]
+    : [];
+
+  if (!groups.length) return <Empty text="Nenhum documento identificado" />;
+
+  const colors = [
+    { bg: "bg-purple-100", text: "text-purple-700", icon: "text-purple-600", border: "border-purple-200" },
+    { bg: "bg-blue-100", text: "text-blue-700", icon: "text-blue-600", border: "border-blue-200" },
+    { bg: "bg-emerald-100", text: "text-emerald-700", icon: "text-emerald-600", border: "border-emerald-200" },
+    { bg: "bg-amber-100", text: "text-amber-700", icon: "text-amber-600", border: "border-amber-200" },
+    { bg: "bg-rose-100", text: "text-rose-700", icon: "text-rose-600", border: "border-rose-200" },
+    { bg: "bg-indigo-100", text: "text-indigo-700", icon: "text-indigo-600", border: "border-indigo-200" },
+  ];
+
   return (
-    <div className="grid gap-2">
-      {documents.map((doc: string, i: number) => (
-        <div key={i} className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 bg-slate-50 hover:bg-white transition-colors">
-          <div className="w-7 h-7 rounded-full bg-purple-100 flex items-center justify-center shrink-0">
-            <FileText className="w-4 h-4 text-purple-600" />
+    <div className="space-y-5">
+      {groups.map((group: any, gi: number) => {
+        const c = colors[gi % colors.length];
+        return (
+          <div key={gi} className={`rounded-xl border-2 ${c.border} overflow-hidden`}>
+            {/* Cabeçalho da categoria */}
+            <div className={`${c.bg} px-4 py-3 flex items-center gap-2`}>
+              <div className={`w-6 h-6 rounded-full bg-white/60 flex items-center justify-center shrink-0`}>
+                <FileText className={`w-3.5 h-3.5 ${c.icon}`} />
+              </div>
+              <span className={`font-bold text-sm ${c.text}`}>{group.category}</span>
+              <span className={`ml-auto text-xs font-medium ${c.text} opacity-70`}>
+                {group.documents?.length || 0} {group.documents?.length === 1 ? "documento" : "documentos"}
+              </span>
+            </div>
+            {/* Lista de documentos */}
+            <ul className="divide-y divide-slate-100">
+              {group.documents?.map((doc: string, di: number) => (
+                <li key={di} className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50 transition-colors">
+                  <span className={`text-xs font-bold ${c.text} mt-0.5 shrink-0 w-5 text-center`}>
+                    {di + 1}.
+                  </span>
+                  <span className="text-sm text-slate-700 leading-relaxed">{doc}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-          <span className="text-sm text-slate-700 leading-relaxed">{doc}</span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -499,7 +535,10 @@ export default function AnalysisPage() {
               <RequirementsTab requirements={analysis.requirements as any[]} />
             </TabsContent>
             <TabsContent value="documents" className="mt-0">
-              <DocumentsTab documents={analysis.requiredDocuments as string[]} />
+              <DocumentsTab
+                documentGroups={(analysis as any).documentGroups ?? []}
+                documents={analysis.requiredDocuments as string[]}
+              />
             </TabsContent>
             <TabsContent value="alerts" className="mt-0">
               <AlertsTab alerts={analysis.alerts as any[]} />
