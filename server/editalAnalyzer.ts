@@ -49,7 +49,7 @@ function getAnthropicClient(): Anthropic {
   return _client;
 }
 
-export function truncateEditalText(text: string, maxChars = 400_000): string {
+export function truncateEditalText(text: string, maxChars = 80_000): string {
   if (text.length <= maxChars) return text;
   const startChars = Math.floor(maxChars * 0.7);
   const endChars = maxChars - startChars;
@@ -164,8 +164,8 @@ Retorne APENAS este JSON:
 }`;
 
   const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 8192,
+    model: "claude-haiku-4-5-20251001", // ~$0,02 por análise de edital médio
+    max_tokens: 6000, // reduzido para economizar — suficiente para análise completa
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
   });
