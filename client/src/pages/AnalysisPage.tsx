@@ -38,6 +38,17 @@ function formatDate(dateStr: string) {
   } catch { return dateStr; }
 }
 
+
+// Badge de referência de página/parágrafo
+function RefBadge({ ref: refStr }: { ref?: string }) {
+  if (!refStr) return null;
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded ml-1 shrink-0">
+      {refStr}
+    </span>
+  );
+}
+
 // ── Componentes de seção ──────────────────────────────────────────────────────
 
 function DeadlinesTab({ deadlines }: { deadlines: any[] }) {
@@ -105,6 +116,7 @@ function RequirementsTab({ requirements }: { requirements: any[] }) {
           <div className="bg-slate-50 px-4 py-3 flex items-center gap-2 border-b border-slate-200">
             <ShieldCheck className="w-4 h-4 text-blue-600" />
             <span className="font-semibold text-sm text-slate-800">{req.category}</span>
+            {req.ref && <RefBadge ref={req.ref} />}
             <Badge variant="secondary" className="ml-auto text-xs">{req.items?.length || 0} itens</Badge>
           </div>
           <ul className="divide-y divide-slate-100">
@@ -151,6 +163,7 @@ function DocumentsTab({ documentGroups, documents }: { documentGroups: any[], do
                 <FileText className={`w-3.5 h-3.5 ${c.icon}`} />
               </div>
               <span className={`font-bold text-sm ${c.text}`}>{group.category}</span>
+              {group.ref && <RefBadge ref={group.ref} />}
               <span className={`ml-auto text-xs font-medium ${c.text} opacity-70`}>
                 {group.documents?.length || 0} {group.documents?.length === 1 ? "documento" : "documentos"}
               </span>
@@ -202,6 +215,7 @@ function PenaltiesTab({ penalties }: { penalties: any[] }) {
           <div className="bg-red-50 px-4 py-2 border-b border-red-200 flex items-center gap-2">
             <Scale className="w-4 h-4 text-red-600" />
             <span className="font-semibold text-sm text-red-800">{p.violation}</span>
+            <RefBadge ref={p.ref} />
           </div>
           <div className="px-4 py-3 text-sm text-slate-700">{p.penalty}</div>
         </div>

@@ -1,8 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Tipos
+// ─────────────────────────────────────────────────────────────────────────────
+
 export interface DocumentGroup {
   category: string;
   documents: string[];
+  ref?: string; // pág. X, pgfo. Y
 }
 
 export interface EditalAnalysisResult {
@@ -14,52 +19,62 @@ export interface EditalAnalysisResult {
     date: string;
     daysUntil: number;
     isCritical: boolean;
+    ref?: string;
   }>;
   requirements: Array<{
     category: string;
     items: string[];
+    ref?: string;
   }>;
   selectionCriteria: Array<{
     criterion: string;
     weight?: number;
     description: string;
+    ref?: string;
   }>;
-  requiredDocuments: string[];         // mantido para compatibilidade
-  documentGroups: DocumentGroup[];     // novo: documentos segmentados por categoria
+  requiredDocuments: string[];
+  documentGroups: DocumentGroup[];
   penalties: Array<{
     violation: string;
     penalty: string;
+    ref?: string;
   }>;
   alerts: Array<{
     severity: "high" | "medium" | "low";
     message: string;
     category: string;
+    ref?: string;
   }>;
   hasCriticalDeadline: boolean;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constantes
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ~120k chars por chunk ≈ 30k tokens de input — bom equilíbrio custo/qualidade
+const CHUNK_SIZE = 120_000;
+// Sobreposição entre chunks para não perder informações na divisão
+const CHUNK_OVERLAP = 10_000;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cliente
+// ─────────────────────────────────────────────────────────────────────────────
 
 let _client: Anthropic | null = null;
 
 function getAnthropicClient(): Anthropic {
   if (!_client) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error("ANTHROPIC_API_KEY não definida. Adicione-a ao arquivo .env");
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY não definida.");
     _client = new Anthropic({ apiKey });
   }
   return _client;
 }
 
-export function truncateEditalText(text: string, maxChars = 80_000): string {
-  if (text.length <= maxChars) return text;
-  const startChars = Math.floor(maxChars * 0.7);
-  const endChars = maxChars - startChars;
-  console.log(`[editalAnalyzer] Texto truncado: ${text.length} → ${maxChars} chars`);
-  return (
-    text.slice(0, startChars) +
-    "\n\n[... TRECHO OMITIDO — DOCUMENTO MUITO LONGO ...]\n\n" +
-    text.slice(-endChars)
-  );
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilitários
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function calculateDaysUntil(dateString: string): number {
   try {
@@ -80,102 +95,205 @@ function cleanJsonResponse(raw: string): string {
   return raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
 }
 
-export async function analyzeEdital(editalText: string): Promise<EditalAnalysisResult> {
-  const client = getAnthropicClient();
-  const textToAnalyze = truncateEditalText(editalText);
+/**
+ * Divide o texto em chunks com sobreposição para não perder informações
+ * entre divisões.
+ */
+function splitIntoChunks(text: string): string[] {
+  if (text.length <= CHUNK_SIZE) return [text];
 
-  const systemPrompt = `Você é um especialista em editais públicos brasileiros — licitações, chamamentos públicos, concursos e pregões. Conhece profundamente a Lei 14.133/2021 (Nova Lei de Licitações), Lei 8.666/93 e normativas relacionadas.
+  const chunks: string[] = [];
+  let start = 0;
 
-Sua tarefa é extrair informações críticas de editais com máxima fidelidade ao texto original.
-Retorne APENAS um objeto JSON válido, sem explicações ou blocos de markdown.
+  while (start < text.length) {
+    const end = Math.min(start + CHUNK_SIZE, text.length);
 
-REGRAS CRÍTICAS — siga todas sem exceção:
+    // Tenta quebrar em parágrafo para não cortar no meio de uma frase
+    let breakPoint = end;
+    if (end < text.length) {
+      const lastNewline = text.lastIndexOf("\n", end);
+      if (lastNewline > start + CHUNK_SIZE * 0.8) {
+        breakPoint = lastNewline;
+      }
+    }
+
+    chunks.push(text.slice(start, breakPoint));
+    start = breakPoint - CHUNK_OVERLAP; // sobreposição
+    if (start < 0) start = 0;
+  }
+
+  console.log(`[editalAnalyzer] Documento dividido em ${chunks.length} chunks`);
+  return chunks;
+}
+
+/**
+ * Combina resultados de múltiplos chunks removendo duplicatas.
+ */
+function mergeResults(results: EditalAnalysisResult[]): EditalAnalysisResult {
+  if (results.length === 1) return results[0];
+
+  // Usa o primeiro chunk para título e organização (geralmente na capa)
+  const base = results[0];
+
+  // Merge de arrays removendo duplicatas por nome/texto
+  const mergeByName = <T extends { name?: string; criterion?: string; violation?: string; message?: string }>(
+    arrays: T[][]
+  ): T[] => {
+    const seen = new Set<string>();
+    const merged: T[] = [];
+    for (const arr of arrays) {
+      for (const item of arr) {
+        const key = item.name || item.criterion || item.violation || item.message || JSON.stringify(item);
+        if (!seen.has(key)) {
+          seen.add(key);
+          merged.push(item);
+        }
+      }
+    }
+    return merged;
+  };
+
+  const mergeDocGroups = (arrays: DocumentGroup[][]): DocumentGroup[] => {
+    const map = new Map<string, Set<string>>();
+    for (const arr of arrays) {
+      for (const group of arr) {
+        if (!map.has(group.category)) map.set(group.category, new Set());
+        group.documents.forEach((d) => map.get(group.category)!.add(d));
+      }
+    }
+    return Array.from(map.entries()).map(([category, docs]) => ({
+      category,
+      documents: Array.from(docs),
+    }));
+  };
+
+  const mergeRequirements = (arrays: Array<{ category: string; items: string[]; ref?: string }>[]) => {
+    const map = new Map<string, Set<string>>();
+    const refs = new Map<string, string>();
+    for (const arr of arrays) {
+      for (const req of arr) {
+        if (!map.has(req.category)) map.set(req.category, new Set());
+        req.items.forEach((i) => map.get(req.category)!.add(i));
+        if (req.ref) refs.set(req.category, req.ref);
+      }
+    }
+    return Array.from(map.entries()).map(([category, items]) => ({
+      category,
+      items: Array.from(items),
+      ref: refs.get(category),
+    }));
+  };
+
+  const allDocs = Array.from(
+    new Set(results.flatMap((r) => r.requiredDocuments))
+  );
+
+  return {
+    title: base.title,
+    organization: base.organization,
+    summary: base.summary,
+    deadlines: mergeByName(results.map((r) => r.deadlines)),
+    requirements: mergeRequirements(results.map((r) => r.requirements)),
+    selectionCriteria: mergeByName(results.map((r) => r.selectionCriteria)),
+    requiredDocuments: allDocs,
+    documentGroups: mergeDocGroups(results.map((r) => r.documentGroups)),
+    penalties: mergeByName(results.map((r) => r.penalties)),
+    alerts: mergeByName(results.map((r) => r.alerts)),
+    hasCriticalDeadline: results.some((r) => r.hasCriticalDeadline),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Análise de um chunk
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function analyzeChunk(
+  client: Anthropic,
+  chunk: string,
+  chunkIndex: number,
+  totalChunks: number
+): Promise<EditalAnalysisResult> {
+  const isFirstChunk = chunkIndex === 0;
+  const chunkNote = totalChunks > 1
+    ? `\n\nNOTA: Este é o trecho ${chunkIndex + 1} de ${totalChunks} do documento. Extraia apenas as informações presentes NESTE trecho.`
+    : "";
+
+  const systemPrompt = `Você é um especialista em editais públicos brasileiros — licitações, chamamentos públicos, concursos e pregões. Conhece profundamente a Lei 14.133/2021 e Lei 8.666/93.
+
+Sua tarefa é extrair informações críticas com máxima fidelidade ao texto original.
+Retorne APENAS um objeto JSON válido, sem explicações ou markdown.
+
+REGRAS CRÍTICAS:
+
+SOBRE REFERÊNCIAS (campo "ref"):
+- Para CADA item extraído, identifique a localização no documento no formato: "pág. X, pgfo. Y"
+- Se não conseguir identificar a página exata, use o número aproximado
+- Se não houver parágrafo numerado, omita o pgfo.
+- Exemplos: "pág. 15, pgfo. 3" ou "pág. 8"
+- Para grupos de documentos, cite a página onde começa a seção
 
 SOBRE PRAZOS (deadlines):
-- Inclua APENAS datas de encerramento/limite para ações do processo licitatório (ex: prazo para entrega de propostas, data da sessão pública, prazo para recursos, prazo para impugnação)
-- NUNCA inclua prazos de execução contratual, vigência do contrato ou duração dos serviços como deadlines
-- Se o edital mencionar "prazo de execução de X meses", "vigência de X meses" — coloque como alerta severity "high", NÃO como deadline
-- Datas no formato YYYY-MM-DD; daysUntil sempre 0 e isCritical sempre false
+- APENAS datas limite de ações do processo (entrega de propostas, sessão pública, recursos)
+- NUNCA coloque prazos de execução/vigência contratual como deadlines — vão nos alerts
+- Datas no formato YYYY-MM-DD; daysUntil sempre 0; isCritical sempre false
 
-SOBRE REQUISITOS (requirements):
-- Use o nome EXATO da categoria como está escrito no edital
-- Se o edital agrupa "Regularidade Jurídica, Fiscal e Trabalhista" em uma seção, use exatamente esse nome
-- Cada categoria pode ter muitos itens — liste TODOS
+SOBRE DOCUMENTOS (documentGroups):
+- Identifique cada seção/grupo de documentos com o nome EXATO do edital
+- Mantenha a ordem original do edital
+- Liste TODOS os documentos com nomes COMPLETOS e EXATOS — nunca abrevie
+- Exemplo ERRADO: "Cadastro Estadual" — CORRETO: "Cadastro de Contribuinte Estadual ou Municipal"
 
-SOBRE DOCUMENTOS SEGMENTADOS (documentGroups):
-- Este é o campo mais importante — extraia os documentos organizados nas categorias EXATAS do edital
-- Identifique cada grupo/seção de documentos que o edital solicita e mantenha a ORDEM ORIGINAL do edital
-- Exemplos de categorias comuns (use o nome exato do edital, não esses exemplos):
-  * "Documentos de Habilitação Jurídica"
-  * "Documentos de Regularidade Fiscal e Trabalhista"
-  * "Documentos de Qualificação Econômico-Financeira"
-  * "Documentos de Qualificação Técnica"
-  * "Documentos da Proposta Técnica"
-  * "Documentos da Proposta de Preços"
-- Para cada categoria, liste TODOS os documentos com seus nomes COMPLETOS e EXATOS
-- NUNCA abrevie nomes de documentos (ex: ERRADO "Cadastro Estadual" — CORRETO "Cadastro de Contribuinte Estadual ou Municipal")
-- Se um documento tiver subinformações (ex: prazo de validade, número de vias), inclua no nome
+SOBRE REQUISITOS:
+- Use o nome exato da categoria — não divida o que está junto no edital
 
-SOBRE DOCUMENTOS (requiredDocuments):
-- Preencha com a lista plana de TODOS os documentos (concatenação de todos os grupos)
-- Mesmas regras de fidelidade ao nome exato
+GERAL:
+- Não invente — array vazio se não encontrar neste trecho
+- Se este for um trecho parcial, capture apenas o que está presente`;
 
-SOBRE CRITÉRIOS DE SELEÇÃO:
-- Liste todos com pesos percentuais exatos se mencionados
+  const userPrompt = `Analise o trecho de edital abaixo e retorne APENAS o JSON:${chunkNote}
 
-REGRAS GERAIS:
-- Não invente — retorne array vazio se não encontrar
-- title = título/número oficial exato
-- organization = nome completo do órgão`;
+TRECHO DO EDITAL:
+${chunk}
 
-  const userPrompt = `Analise o edital abaixo e retorne APENAS o JSON, sem markdown.
-Use os nomes exatos de categorias e documentos conforme aparecem no edital, na ordem original.
-
-EDITAL:
-${textToAnalyze}
-
-Retorne APENAS este JSON:
+JSON:
 {
-  "title": "título/número exato do edital",
-  "organization": "nome completo do órgão",
-  "summary": "2 frases descrevendo objeto e valor estimado se houver",
+  "title": "${isFirstChunk ? 'título/número exato' : ''}",
+  "organization": "${isFirstChunk ? 'nome completo do órgão' : ''}",
+  "summary": "${isFirstChunk ? '2 frases sobre objeto e valor' : ''}",
   "deadlines": [
-    { "name": "nome exato do prazo", "date": "YYYY-MM-DD", "daysUntil": 0, "isCritical": false }
+    { "name": "nome exato", "date": "YYYY-MM-DD", "daysUntil": 0, "isCritical": false, "ref": "pág. X, pgfo. Y" }
   ],
   "requirements": [
-    { "category": "nome exato da categoria no edital", "items": ["requisito completo"] }
+    { "category": "nome exato da categoria", "items": ["requisito completo"], "ref": "pág. X, pgfo. Y" }
   ],
   "selectionCriteria": [
-    { "criterion": "nome do critério", "weight": 0, "description": "descrição completa" }
+    { "criterion": "nome", "weight": 0, "description": "descrição", "ref": "pág. X, pgfo. Y" }
   ],
   "documentGroups": [
-    {
-      "category": "nome exato da seção de documentos no edital (ex: Documentos da Proposta Técnica)",
-      "documents": ["nome completo e exato do documento conforme o edital"]
-    }
+    { "category": "nome exato da seção", "documents": ["nome completo do documento"], "ref": "pág. X" }
   ],
-  "requiredDocuments": ["lista plana de todos os documentos — mesmos do documentGroups concatenados"],
+  "requiredDocuments": ["lista plana de todos os documentos deste trecho"],
   "penalties": [
-    { "violation": "descrição da infração", "penalty": "sanção aplicada" }
+    { "violation": "infração", "penalty": "sanção", "ref": "pág. X, pgfo. Y" }
   ],
   "alerts": [
-    { "severity": "high", "message": "descrição do alerta", "category": "categoria" }
+    { "severity": "high", "message": "descrição", "category": "categoria", "ref": "pág. X, pgfo. Y" }
   ]
 }`;
 
   const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001", // ~$0,02 por análise de edital médio
-    max_tokens: 6000, // reduzido para economizar — suficiente para análise completa
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 6000,
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
   });
 
   const rawContent = response.content[0];
-  if (!rawContent || rawContent.type !== "text") throw new Error("Resposta inesperada da API Anthropic");
+  if (!rawContent || rawContent.type !== "text") throw new Error("Resposta inesperada da API");
 
   let rawText = rawContent.text;
   if (response.stop_reason === "max_tokens") {
-    console.warn("[editalAnalyzer] Resposta truncada — tentando recuperar JSON");
+    console.warn(`[editalAnalyzer] Chunk ${chunkIndex + 1} truncado — recuperando JSON`);
     const openBraces = (rawText.match(/{/g) || []).length - (rawText.match(/}/g) || []).length;
     const openBrackets = (rawText.match(/\[/g) || []).length - (rawText.match(/]/g) || []).length;
     rawText = rawText.replace(/,\s*$/, "").replace(/[^}\]]*$/, "");
@@ -187,16 +305,16 @@ Retorne APENAS este JSON:
   try {
     parsed = JSON.parse(cleaned);
   } catch {
-    console.error("[editalAnalyzer] JSON inválido recebido:", cleaned.slice(0, 300));
-    throw new Error("O modelo retornou JSON inválido. Tente novamente.");
+    console.error(`[editalAnalyzer] JSON inválido no chunk ${chunkIndex + 1}:`, cleaned.slice(0, 200));
+    // Retorna resultado vazio em vez de quebrar tudo
+    parsed = {};
   }
 
   const deadlines = (parsed.deadlines ?? []).map((d: any) => {
     const daysUntil = calculateDaysUntil(d.date);
-    return { name: d.name ?? "", date: d.date ?? "", daysUntil, isCritical: daysUntil > 0 && daysUntil < 7 };
+    return { name: d.name ?? "", date: d.date ?? "", daysUntil, isCritical: daysUntil > 0 && daysUntil < 7, ref: d.ref };
   });
 
-  // Se documentGroups não veio, gera a partir de requiredDocuments para compatibilidade
   const documentGroups: DocumentGroup[] = parsed.documentGroups?.length
     ? parsed.documentGroups
     : parsed.requiredDocuments?.length
@@ -216,4 +334,24 @@ Retorne APENAS este JSON:
     alerts: parsed.alerts ?? [],
     hasCriticalDeadline: hasCriticalDeadlines(deadlines),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Função principal
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function analyzeEdital(editalText: string): Promise<EditalAnalysisResult> {
+  const client = getAnthropicClient();
+  const chunks = splitIntoChunks(editalText);
+
+  console.log(`[editalAnalyzer] Analisando ${chunks.length} chunk(s) | total: ${editalText.length} chars`);
+
+  const results: EditalAnalysisResult[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    console.log(`[editalAnalyzer] Chunk ${i + 1}/${chunks.length}...`);
+    const result = await analyzeChunk(client, chunks[i], i, chunks.length);
+    results.push(result);
+  }
+
+  return mergeResults(results);
 }
