@@ -238,10 +238,33 @@ SOBRE PRAZOS (deadlines):
 - Datas no formato YYYY-MM-DD; daysUntil sempre 0; isCritical sempre false
 
 SOBRE DOCUMENTOS (documentGroups):
-- Identifique cada seção/grupo de documentos com o nome EXATO do edital
-- Mantenha a ordem original do edital
-- Liste TODOS os documentos com nomes COMPLETOS e EXATOS — nunca abrevie
-- Exemplo ERRADO: "Cadastro Estadual" — CORRETO: "Cadastro de Contribuinte Estadual ou Municipal"
+Este é o campo mais importante. Siga rigorosamente:
+
+ESTRUTURA OBRIGATÓRIA — dois grandes blocos na seguinte ordem:
+
+BLOCO 1 — PROPOSTA (se houver):
+- Identifique os documentos exigidos para a proposta e crie subgrupos separados:
+  * "Proposta de Preços" (ou o nome exato usado no edital)
+  * "Proposta Técnica" (apenas se o edital exigir — não invente)
+  * Outros subgrupos de proposta que o edital definir
+- Cada subgrupo deve listar TODOS os documentos exigidos naquela seção
+
+BLOCO 2 — HABILITAÇÃO (sempre presente em licitações):
+- Identifique cada subcategoria de habilitação com o nome EXATO do edital. Exemplos comuns (mas use sempre o termo do edital):
+  * "Habilitação Jurídica" ou "Regularidade Jurídica"
+  * "Regularidade Fiscal e Trabalhista" ou "Regularidade Fiscal" ou "Habilitação Fiscal"
+  * "Qualificação Econômico-Financeira" ou "Qualificação Econômica"
+  * "Qualificação Técnica" ou "Habilitação Técnica"
+  * Outros subgrupos que o edital definir
+- Cada subcategoria deve listar TODOS os documentos exigidos
+
+REGRAS PARA DOCUMENTOS:
+- Mantenha a ordem EXATA em que aparecem no edital dentro de cada subgrupo
+- Preserve o nome COMPLETO e EXATO de cada documento — palavra por palavra
+- NUNCA abrevie: ERRADO "Cadastro Estadual" → CORRETO "Cadastro de Contribuinte Estadual ou Municipal"
+- NUNCA abrevie: ERRADO "Certidão Negativa Federal" → CORRETO "Certidão Negativa de Débitos relativos a Créditos Tributários Federais e à Dívida Ativa da União"
+- Se um documento tiver condições (ex: "com prazo de validade de 90 dias"), inclua no nome
+- Se não houver seção de Proposta no edital, omita o Bloco 1
 
 SOBRE REQUISITOS:
 - Use o nome exato da categoria — não divida o que está junto no edital
